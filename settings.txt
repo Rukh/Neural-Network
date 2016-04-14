@@ -1,0 +1,5 @@
+layer_size: 480
+number_of_layers: 2
+kernel_size: 5
+similarity_factor: 30
+primary_kernels_path: primary_kernels.txt
