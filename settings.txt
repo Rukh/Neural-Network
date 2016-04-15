@@ -1,5 +1,5 @@
-layer_size: 480
+layer_size: 32000
 number_of_layers: 2
-kernel_size: 5
-similarity_factor: 30
-primary_kernels_path: primary_kernels.txt
+kernel_size: 10
+similarity_factor: 20
+primary_kernels_path: /Users/Dmitry/Desktop/Neural-Network/primary_kernels.txt

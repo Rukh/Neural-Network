@@ -2,79 +2,145 @@
 #include <fstream>
 #include <cmath>
 
-class Layer {
-    int size;
-    int* array;
+float error;
 
-public:
-    Layer(int size) {
-        array = new int[size];
-        this->size = size;
-        for(int i = 0; i < size; i++) {
-            array[i] = 0.0;
-        }
-    }
-    int get(int i) {
-        return array[i];
-    }
-    bool loadData(std::string file_path, int index) {//Загружает кусок file_path размера size из позиции index
-        std::ifstream fin;
-        fin.open(file_path.data());
-        float temp;
-        for(int i = 0; i < index; i++) {
-            fin >> temp;
-        }
-        fin >> temp;
-        array[0] = temp * 100000.0;
-        for(int i = 1; i < size; i++) {
-            fin >> temp;
-            array[i] = temp * 100000.0;
-            array[i - 1] -=  array[i];
-        }
-        fin >> temp;
-        array[size - 1] -= temp * 100000.0;
-        /*
-        for(int i = 0; i < size; i++) {
-            std::cout << array[i] << ' ';
-        }
-        */
-        return true;
-    }
-    void set(int i, int value) {
-        array[i] = value;
-    }
-};
-
-class ConvolutionKernel {
+class BaseLayer {
     int size;
     float* array;
 
 public:
-    ConvolutionKernel(int size) {
+    BaseLayer(int size) {
         array = new float[size];
         this->size = size;
         for(int i = 0; i < size; i++) {
             array[i] = 0.0;
         }
     }
-    float get(int i) {
-        return array[i];
+
+    float& operator[](int index) {
+        if(index >= size || index < 0) {
+            throw "class: BaseLayer; function: operator[]; error: Bad index";
+            return error;
+        }
+        else return array[index];
     }
-    void set(int i, float value) {
-        array[i] = value;
+
+    int length() const {
+        return size;
+    }
+
+    bool loadData(std::string file_path, int index = 0) {//Загружает кусок file_path размера size из позиции index
+        std::ifstream fin;
+        fin.open(file_path.data());
+
+        float temp;
+        for(int i = 0; i < index; i++) {
+            fin >> temp;
+        }
+        fin >> temp;
+
+        array[0] = int(temp * 100000.0);
+        for(int i = 1; i < size; i++) {
+            fin >> temp;
+            array[i] = int(temp * 100000.0);
+            array[i - 1] -=  array[i];
+        }
+        fin >> temp;
+        array[size - 1] -= int(temp * 100000.0);
+        
+        /*
+        for(int i = 0; i < size; i++) {
+            std::cout << i << ": "<< array[i] << '\n';
+        }*/
+        
+        return true;
     }
 };
 
-class UCNN { //Univariate Convolutional Neural Network
+class Kernel { //ядро свертки
+    int size; 
+    float* array;
+
+public:
+    Kernel(int size) {
+        array = new float[size];
+        this->size = size;
+        for(int i = 0; i < size; i++) {
+            array[i] = 0.0;
+        }
+    }
+    Kernel(int size, float* mass) { //создание ядра из последовательности
+        array = new float[size];
+        this->size = size;
+        for(int i = 0; i < size; i++) {
+            array[i] = mass[i];
+        }
+    }
+    Kernel& operator=(Kernel* var) {
+        if(this->length() != var->length()) {
+            throw "class: Kernel; function: operator=; error: Assignment is impossible";
+        }
+        for(int i = 0; i < size; i++) {
+            array[i] = (*var)[i];
+        }
+        return *this;
+    }
+    float compare_with(float* mass) {// сравнение с массивом
+        float deviation = 0;
+        for(int i = 0; i < size; i++) {
+            deviation += (array[i] - mass[i])*(array[i] - mass[i]);
+        }
+        deviation /= size;
+        return sqrt(deviation);
+    }
+    float compare_with(Kernel* var) {// сравнение с другим ядром
+        if(this->length() != var->length()) {
+            throw "class: Kernel; function: compare_with(); error: Compare is impossible";
+        }
+        float deviation = 0;
+        for(int i = 0; i < size; i++) {
+            deviation += (array[i] - (*var)[i])*(array[i] - (*var)[i]);
+        }
+        deviation /= size;
+        return sqrt(deviation);
+    }
+
+    float& operator[](int index) {
+        if(index >= size || index < 0) {
+            throw "class: Kernel; function: operator[]; error: Bad index";
+            return error;
+        }
+        else return array[index];
+    }
+
+    int length() const {
+        return size;
+    }
+    bool is_empty() {
+        bool empty = true;
+        for(int i = 0; i < size; i++) {
+            if(array[i] != 0.0) empty = false;
+        }
+        return empty;
+    }
+    void show() {
+        for(int i = 0; i < size; i++) {
+            std::cout << array[i] << ' ';
+        }
+    }
+};
+
+
+class CNN { //Convolutional Neural Network - одномерная вариация
     int layer_size;
-    int number_of_layers;
-    int kernel_size;
+    int number_of_layers; //Сейчас не используется
+    int kernel_size; 
     float similarity_factor;
-    float kernel_similarity_factor;
     std::string primary_kernels_path;
 
-    Layer** layer_array;                    //указатели на входные слои данных
-    ConvolutionKernel*** kernels_arrays;       //набор весовых матриц для каждого слоя
+    BaseLayer* base_layer;
+    Kernel** kernel_array;
+    int number_of_kernels;
 
 public:
     bool loadSettings(std::string file_path = "settings.txt") {
@@ -85,7 +151,6 @@ public:
         fin >> temp; if (temp == "number_of_layers:") fin >> number_of_layers; else return false;
         fin >> temp; if (temp == "kernel_size:") fin >> kernel_size; else return false;
         fin >> temp; if (temp == "similarity_factor:") fin >> similarity_factor; else return false;
-        fin >> temp; if (temp == "kernel_similarity_factor:") fin >> kernel_similarity_factor; else return false;
         fin >> temp; if (temp == "primary_kernels_path:") fin >> primary_kernels_path; else return false;
         fin.close();
         return true;
@@ -94,38 +159,49 @@ public:
     bool loadData(std::string file_path = "data.txt") {
         std::ifstream fin;
         fin.open(file_path.data());
-        layer_array[0] = new Layer(layer_size);
-        layer_array[0]->loadData(file_path, 0);
+        base_layer = new BaseLayer(layer_size);
+        base_layer->loadData(file_path, 0);
 
         /*
         for(int i = 0; i < layer_size; i++) {
-            std::cout << i << ": " << layer_array[0]->get(i) << '\n';
-        }
-        */
+            std::cout << i << ": " << layer_array->[0] << '\n';
+        }*/
+        
         return true;
-    }
-    bool initialize() {
-        layer_array = new Layer*[number_of_layers];
-        kernels_arrays = new ConvolutionKernel**[number_of_layers];
-        return true;
-    }
-    float getData(int index) { //0 элемент является самым новым
-        return layer_array[0]->get(index);
     }
     bool generationPrimaryKernels() {  //Генерация сверточных ядер первого слоя, и запись их в файл
         std::ofstream fout;
         fout.open(primary_kernels_path.data());
+        
+        for(similarity_factor = 1; similarity_factor < 101; similarity_factor++){
+
+        number_of_kernels = 0;
         int feature_map_size = layer_size - (kernel_size - 1);
-        kernels_arrays[0] = new ConvolutionKernel*[feature_map_size]; //максимальное число ядер которое может быть сгенерировано в данном алгоритме
+        kernel_array = new Kernel*[feature_map_size]; //максимальное число ядер которое может быть сгенерировано в данном алгоритме
+        for (int i = 0; i < feature_map_size; i++)
+        {
+            kernel_array[i] = NULL;
+        }
         for (int i = 0; i < feature_map_size; i++)  //первичная генерация ядер свертки
         {
-            kernels_arrays[0][i] = new ConvolutionKernel(kernel_size);
-            for (int j = 0; j < kernel_size; j++)
+            bool found_proper = false;
+            for (int j = 0; j < feature_map_size; j++) //пребор ядер и проверка степени их отклонения от выборки
             {
-                kernels_arrays[0][i]->set(j, layer_array[0]->get(i + j));
+                if(kernel_array[j] == NULL) break;
+                if(kernel_array[j]->is_empty()) break;
+                if(kernel_array[j]->compare_with(&((*base_layer)[i])) < similarity_factor) {
+                    found_proper = true;
+                    break;
+                }
+            }
+
+            if(found_proper == false) { //создаем нове ядро
+                kernel_array[number_of_kernels] = new Kernel(kernel_size, &((*base_layer)[i]));
+                number_of_kernels++;
             }
         }
 
+        /*
         float deviation = 0;
         bool is_coating = true; //есть ли подобие?
         int counter = 0;
@@ -180,20 +256,19 @@ public:
             }
         }
         float temp = 0;
+        */
 
+        /*
         std::cout << '\n';
-        for (int i = 0; i < feature_map_size; i++)  //вывод на экран
+        for (int i = 0; i < number_of_kernels; i++)  //вывод на экран
         {
             std::cout << "kernel #" << i << ": ";
-            for (int j = 0; j < kernel_size; j++)
-            {
-                std::cout << kernels_arrays[0][i]->get(j) << ' ';
-            }
+            if(kernel_array[i] != NULL) kernel_array[i]->show();
             std::cout << '\n';
-        }
-        
+        }*/
+        std::cout << "Amount of kernels: (" << number_of_kernels << " / " << feature_map_size << ")\n";
 
-
+        /*
         for (int i = 0; i < feature_map_size; i++)  //посчитаем не нулевые ядра и выведем на экран
         {
             temp = 0;
@@ -204,7 +279,8 @@ public:
             if(temp != 0.0) counter++;
         }
         std::cout << "Amount of kernels: (" << counter << " / " << feature_map_size << ")\n";
-
+        */
+        /*
         counter = 0;
         for (int i = 0; i < feature_map_size; i++)  //расчитаем степень поккрытия ядрами свертки исходного слоя
         {
@@ -232,17 +308,31 @@ public:
             //std::cout << '\n' << '\n' << '\n';
         }
         std::cout << "Coverage area: " << (float(counter) / feature_map_size) * 100 << "%\n";
+        */
+        fout << number_of_kernels << '\n';
+        }
         return true;
     }
 };
 
 int main() {
+    /*
     UCNN Mind;
     char ch;
     for (;;)
     {
         std::cout << "Load settings ------> " << Mind.loadSettings("/Users/Dmitry/Desktop/Neural-Network/settings.txt") << '\n';
         std::cout << "Initialize ---------> " << Mind.initialize() << '\n';
+        std::cout << "Load data ----------> " << Mind.loadData("/Users/Dmitry/Desktop/Neural-Network/data.txt") << '\n';
+        std::cout << "Generation kernels -> " << Mind.generationPrimaryKernels() << '\n';
+        std::cout << "Do you want exit?: "; std::cin >> ch;
+        if (ch == 'y') return 0;
+    }*/
+    CNN Mind;
+    char ch;
+    for (;;)
+    {
+        std::cout << "Load settings ------> " << Mind.loadSettings("/Users/Dmitry/Desktop/Neural-Network/settings.txt") << '\n';
         std::cout << "Load data ----------> " << Mind.loadData("/Users/Dmitry/Desktop/Neural-Network/data.txt") << '\n';
         std::cout << "Generation kernels -> " << Mind.generationPrimaryKernels() << '\n';
         std::cout << "Do you want exit?: "; std::cin >> ch;
